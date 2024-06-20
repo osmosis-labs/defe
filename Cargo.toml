@@ -1,0 +1,41 @@
+[package]
+name = "defe"
+version = "0.1.0"
+authors = ["dylan.kawalec@osmosis.team"]
+edition = "2021"
+
+[dependencies]
+clap = { version = "4.5.7", features = ["derive"] }
+dialoguer = "0.9.0"
+colored = "2.0"
+dotenv = "0.15.0"
+rustix = "0.38.34"
+reqwest = { version = "0.11.13", features = ["json"] }
+tokio = { version = "1.23.0", features = ["full"] }
+serde = { version = "1.0.151", features = ["derive"] }
+serde_json = "1.0.94"
+thiserror = "1.0"
+chrono = "0.4"
+mbedtls = { version = "0.12.3", default-features = false, features = ["std", "x509", "ssl", "time", "aesni", "padlock"] }
+
+
+[lib]
+name = "dfe_lib"
+path = "src/lib.rs"
+
+
+
+[package.metadata.fortanix-sgx]
+# stack size (in bytes) for each thread, the default stack size is 0x20000.
+stack-size = 0x20000         # 128 KB
+# heap size (in bytes), increased to accommodate observed peak usage.
+heap-size = 0x28000000       # 640 MB
+# the default number of threads is equal to the number of available CPUs of
+# the current system. Adjusted based on observed process count.
+threads = 8
+# SSA frame size (in pages) for each thread, the default SSA frame size is 1.
+# You normally don't need to change the SSA frame size.
+ssaframesize = 1
+# whether to enable EDP debugging features in the enclave, debugging is
+# enabled by default.
+debug = true
