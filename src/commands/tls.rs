@@ -1,5 +1,7 @@
 extern crate chrono;
 extern crate mbedtls;
+extern crate core; // Add this line
+
 // this program will run a TLS server on port 7878, built and signed by the rust-sgx 
 use chrono::prelude::*;
 use mbedtls::hash::Type::Sha256;
@@ -15,6 +17,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::os::raw::{c_uchar, c_int, c_void};
 use std::mem::size_of;
+use core::arch::x86_64;
 
 const RSA_KEY_SIZE: u32 = 3072;
 const RSA_KEY_EXP: u32 = 0x10001;
@@ -78,10 +81,12 @@ fn write_rng_to_slice(outbuf: &mut [u8], rng: fn() -> Option<usize>) -> c_int {
     0
 }
 
+
+
 fn rdseed() -> Option<usize> {
     let mut value = 0;
     for _ in 0..10 {
-        if unsafe { core::arch::x86_64::_rdseed64_step(&mut value) } == 1 {
+        if unsafe { x86_64::_rdseed64_step(&mut value) } == 1 {
             return Some(value as usize);
         }
     }
