@@ -1,23 +1,33 @@
 [package]
 name = "defe"
-version = "0.1.0"
-authors = ["dylan.kawalec@osmosis.team"]
+version = "0.2.1"
+authors = ["DylanCKawalec"]
 edition = "2021"
 
 [dependencies]
 clap = { version = "4.5.7", features = ["derive"] }
-dialoguer = "0.9.0"
+dialoguer = "0.10.2"
 colored = "2.0"
 dotenv = "0.15.0"
 rustix = "0.38.34"
 reqwest = { version = "0.11.13", features = ["json"] }
 tokio = { version = "1.23.0", features = ["full"] }
-serde = { version = "1.0.151", features = ["derive"] }
 serde_json = "1.0.94"
 thiserror = "1.0"
 chrono = "0.4"
-mbedtls = { version = "0.12.3", default-features = false, features = ["std", "x509", "ssl", "time", "aesni", "padlock"] }
-x86_64 = "0.15.1"
+aes-gcm = "0.10.1"
+base64 = "0.22.1"
+crossterm = "0.27.0"
+hmac = "0.12.1"
+pbkdf2 = "0.12.2"
+rand = "0.8.5"
+rpassword = "7.2.0"
+serde = { version = "1.0.152", features = ["derive"] }
+sha2 = "0.10.6"
+zxcvbn = "3.0.1"
+rustls = "0.23.10"
+rustls-pemfile = "2.0.0"
+
 
 
 [lib]

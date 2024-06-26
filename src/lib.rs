@@ -115,7 +115,7 @@ pub fn run_defe_menu() {
             "Run defe-certbot",
             "Run defe-fetcher",
             "Run defe-tls",
-            "Run defe-server",
+            "Run defe-rosario",
             "Create new project",
             "Exit",
         ];
@@ -130,8 +130,16 @@ pub fn run_defe_menu() {
         match selection {
             0 => commands::certbot::run(),
             1 => commands::fetcher::run(),
-            2 => commands::tls::run(),
-            3 => commands::server::run(),
+            2 => {
+                if let Err(e) = commands::tls::run() {
+                    eprintln!("Error running TLS server: {}", e);
+                }
+            },
+            3 => {
+                if let Err(e) = commands::ros::run() {
+                    eprintln!("Rosario Password Program error: {:?}", e);
+                }
+            },
             4 => handle_new_defe_project(),
             5 => {
                 println!("Exiting...");

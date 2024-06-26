@@ -1,223 +1,140 @@
-extern crate chrono;
-extern crate mbedtls;
-extern crate core; // Add this line
-
-// this program will run a TLS server on port 7878, built and signed by the rust-sgx 
-use chrono::prelude::*;
-use mbedtls::hash::Type::Sha256;
-use mbedtls::pk::Pk;
-use mbedtls::rng::{CtrDrbg, EntropyCallback};
-use mbedtls::ssl::config::{Endpoint, Preset, Transport};
-use mbedtls::ssl::{Config, Context};
-use mbedtls::x509::certificate::{Builder, Certificate};
-use mbedtls::x509::Time;
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::env;
+use std::path::PathBuf;
+use std::io::{self, BufRead, BufReader, Write}; // Added BufRead here
 use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
-use std::os::raw::{c_uchar, c_int, c_void};
-use std::mem::size_of;
-use core::arch::x86_64;
+use std::fs;
+use std::path::Path;
 
-const RSA_KEY_SIZE: u32 = 3072;
-const RSA_KEY_EXP: u32 = 0x10001;
-const DAYS_TO_SECS: u64 = 86400;
-const CERT_VAL_SECS: u64 = 365 * DAYS_TO_SECS;
+use rustls::{ServerConfig, ServerConnection};
+use rustls_pemfile::{certs, pkcs8_private_keys};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use dialoguer::Input;
 
-trait ToTime {
-    fn to_time(&self) -> Time;
+// Function to load certificates from a file
+fn load_certs(filename: &PathBuf) -> io::Result<Vec<CertificateDer<'static>>> {
+    let certfile = fs::File::open(filename)?;
+    let mut reader = BufReader::new(certfile);
+    certs(&mut reader).collect()
 }
 
-impl ToTime for chrono::DateTime<Utc> {
-    fn to_time(&self) -> Time {
-        Time::new(
-            self.year() as _,
-            self.month() as _,
-            self.day() as _,
-            self.hour() as _,
-            self.minute() as _,
-            self.second() as _,
-        )
-        .unwrap()
-    }
+// Function to load private keys from a file
+fn load_keys(filename: &PathBuf) -> io::Result<PrivateKeyDer<'static>> {
+    let keyfile = fs::File::open(filename)?;
+    let mut reader = BufReader::new(keyfile);
+    let keys = pkcs8_private_keys(&mut reader).collect::<Result<Vec<_>, _>>()?;
+    keys.into_iter().next().map(|key| key.into()).ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "no keys found"))
 }
 
-fn get_validity() -> (Time, Time) {
-    let start = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    let end = start + CERT_VAL_SECS;
-    let not_before = Utc.timestamp_opt(start as _, 0).unwrap();
-    let not_after = Utc.timestamp_opt(end as _, 0).unwrap();
-    (not_before.to_time(), not_after.to_time())
-}
+// Function to handle client connections
+fn handle_client(stream: TcpStream, config: Arc<ServerConfig>, project_dir: &str) -> io::Result<()> {
+    let conn = ServerConnection::new(Arc::clone(&config)).unwrap();
+    let mut tls = rustls::StreamOwned::new(conn, stream);
+    let mut reader = BufReader::new(&mut tls);
 
-struct Entropy;
+    let mut request_line = String::new();
+    reader.read_line(&mut request_line)?;
 
-impl EntropyCallback for Entropy {
-    unsafe extern "C" fn call(_: *mut c_void, data: *mut c_uchar, len: usize) -> c_int {
-        let mut outbuf = std::slice::from_raw_parts_mut(data, len);
-        write_rng_to_slice(&mut outbuf, rdseed)
+    // Parse the request (very basic parsing, you might want to use a proper HTTP parser)
+    let request_parts: Vec<&str> = request_line.split_whitespace().collect();
+    if request_parts.len() < 2 {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid HTTP request"));
     }
 
-    fn data_ptr(&self) -> *mut c_void {
-        std::ptr::null_mut()
-    }
-}
+    let path = request_parts[1];
+    let response = match path {
+        "/" => serve_file("index.html", project_dir),
+        _ => serve_file(&path[1..], project_dir), // Remove leading '/'
+    };
 
-fn write_rng_to_slice(outbuf: &mut [u8], rng: fn() -> Option<usize>) -> c_int {
-    let stepsize = size_of::<usize>();
-
-    for chunk in outbuf.chunks_mut(stepsize) {
-        if let Some(val) = rng() {
-            let buf = val.to_ne_bytes();
-            let ptr = &buf[..chunk.len()];
-            chunk.copy_from_slice(ptr);
-        } else {
-            return -1; // Error code
-        }
-    }
-    0
-}
-
-
-
-fn rdseed() -> Option<usize> {
-    let mut value = 0;
-    for _ in 0..10 {
-        if unsafe { x86_64::_rdseed64_step(&mut value) } == 1 {
-            return Some(value as usize);
-        }
-    }
-    None
-}
-
-fn get_key_and_cert() -> (Arc<Pk>, mbedtls::alloc::Box<Certificate>) {
-    let entropy = Arc::new(Entropy);
-    let mut ctr_drbg = CtrDrbg::new(entropy, None).unwrap();
-    let key = Arc::new(Pk::generate_rsa(&mut ctr_drbg, RSA_KEY_SIZE, RSA_KEY_EXP).unwrap());
-    let mut key_for_issuer = Pk::generate_rsa(&mut ctr_drbg, RSA_KEY_SIZE, RSA_KEY_EXP).unwrap();
-    let (not_before, not_after) = get_validity();
-
-    let mut key_for_subject = Pk::generate_rsa(&mut ctr_drbg, RSA_KEY_SIZE, RSA_KEY_EXP).unwrap();
-
-    let cert = Certificate::from_der(
-        &Builder::new()
-            .subject_key(&mut key_for_subject)
-            .subject_with_nul("CN=mbedtls-server.example\0")
-            .unwrap()
-            .issuer_key(&mut key_for_issuer)
-            .issuer_with_nul("CN=mbedtls-server.example\0")
-            .unwrap()
-            .validity(not_before, not_after)
-            .unwrap()
-            .serial(&[5])
-            .unwrap()
-            .signature_hash(Sha256)
-            .write_der_vec(&mut ctr_drbg)
-            .unwrap(),
-    )
-    .unwrap();
-    (key, cert)
-}
-
-#[allow(dead_code)]
-#[derive(Debug)]
-enum MyError {
-    IoError(io::Error),
-    TlsError(mbedtls::Error),
-}
-
-impl From<io::Error> for MyError {
-    fn from(err: io::Error) -> MyError {
-        MyError::IoError(err)
-    }
-}
-
-impl From<mbedtls::Error> for MyError {
-    fn from(err: mbedtls::Error) -> MyError {
-        MyError::TlsError(err)
-    }
-}
-
-fn serve(
-    mut conn: TcpStream,
-    key: Arc<Pk>,
-    cert: &mbedtls::alloc::Box<Certificate>,
-) -> Result<(), MyError> {
-    let entropy = Arc::new(Entropy);
-    let ctr_drbg = CtrDrbg::new(entropy, None).map_err(MyError::from)?;
-
-    let mut config = Config::new(Endpoint::Server, Transport::Stream, Preset::Default);
-    config.set_rng(Arc::new(ctr_drbg));
-    let mut cert_list = mbedtls::alloc::List::new();
-    cert_list.push(cert.clone());
-    config
-        .push_cert(Arc::new(cert_list), key.clone())
-        .map_err(MyError::from)?;
-
-    let mut ctx = Context::new(Arc::new(config));
-    ctx.establish(&mut conn, None).map_err(MyError::from)?;
-
-    struct SessionWrapper<'a, T: Read + Write + 'a>(&'a mut Context<T>);
-
-    impl<'a, T: Read + Write> Read for SessionWrapper<'a, T> {
-        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-            self.0
-                .read(buf)
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
-        }
-    }
-
-    impl<'a, T: Read + Write> Write for SessionWrapper<'a, T> {
-        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            self.0
-                .write(buf)
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            self.0
-                .flush()
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
-        }
-    }
-
-    let mut session = SessionWrapper(&mut ctx);
-    let mut reader = BufReader::new(&mut session);
-    let mut read_buf = String::new();
-    let mut write_buf = Vec::new();
-
-    while let Ok(size) = reader.read_line(&mut read_buf) {
-        if size == 0 {
-            break;
-        }
-        write_buf.extend_from_slice(read_buf.as_bytes());
-        read_buf.clear();
-    }
-
-    session.write_all(&write_buf).map_err(MyError::from)?;
+    // Write the response
+    tls.write_all(response.as_bytes())?;
+    tls.flush()?;
 
     Ok(())
 }
 
-pub fn run() {
-    let (key, cert) = get_key_and_cert();
-    let listener = TcpListener::bind("0.0.0.0:7878").unwrap();
+// Function to serve a file
+fn serve_file(filename: &str, project_dir: &str) -> String {
+    let path = Path::new(project_dir).join(filename);
+    match fs::read_to_string(path) {
+        Ok(content) => format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\n\r\n{}",
+            content.len(),
+            content
+        ),
+        Err(_) => "HTTP/1.1 404 NOT FOUND\r\n\r\n404 - Not Found".to_string(),
+    }
+}
 
-    println!("TLS server started. Listening on 0.0.0.0:7878");
+pub fn run() -> io::Result<()> {
+    // Get the current directory
+    let current_dir = env::current_dir()?;
 
+    // Construct paths for the certificate and key files
+    let cert_path = current_dir.join("fullchain.pem");
+    let key_path = current_dir.join("privkey.pem");
+
+    // Check if the files exist
+    if !cert_path.exists() || !key_path.exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "Certificate or key file not found. Please run the certbot program first.",
+        ));
+    }
+
+    // Load certificates and private key
+    let certs = load_certs(&cert_path)?;
+    let key = load_keys(&key_path)?;
+
+    // Ask for the project directory name
+    let project_dir = Input::<String>::new()
+        .with_prompt("Enter the name of the project directory to serve")
+        .interact_text()?;
+
+    // Check if the project directory exists
+    let project_path = current_dir.join(&project_dir);
+    if !project_path.exists() || !project_path.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("Project directory '{}' not found", project_dir),
+        ));
+    }
+
+    // Create server configuration
+    let config = ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(certs, key)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+
+    let config = Arc::new(config);
+
+    // Create a TCP listener
+    let listener = TcpListener::bind("0.0.0.0:443")?;
+    println!("HTTPS server started. Listening on 0.0.0.0:443");
+    println!("Serving project from directory: {}", project_dir);
+
+    // Accept incoming connections
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
                 println!("New connection accepted");
-                let _ = serve(stream, key.clone(), &cert);
-                println!("Connection closed");
+                let config = Arc::clone(&config);
+                let project_dir = project_dir.clone();
+
+                // Handle each client connection in a separate thread
+                std::thread::spawn(move || {
+                    if let Err(e) = handle_client(stream, config, &project_dir) {
+                        eprintln!("Error in client connection: {:?}", e);
+                    }
+                    println!("Connection closed");
+                });
             }
             Err(e) => {
                 eprintln!("Error accepting connection: {}", e);
             }
         }
     }
+
+    Ok(())
 }
