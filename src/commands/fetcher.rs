@@ -1,11 +1,11 @@
 use reqwest;
 use serde::Deserialize;
-use std::process::Command;
-use std::io::{self, Write};
 use std::env;
+use std::io::{self, Write};
 use std::path::Path;
-use tokio::time::{timeout, Duration};
+use std::process::Command;
 use thiserror::Error;
+use tokio::time::{timeout, Duration};
 // This program will run an asyncrounous Fetch Request to IPFS to load from a git commit hash from the rust-sgx
 #[derive(Deserialize, Debug)]
 struct RepoInfo {
@@ -106,7 +106,8 @@ pub fn run() {
         println!("Fetched repository info from IPFS: {:?}", repo_info);
 
         // Extract the repository name from the URL
-        let repo_name = repo_info.repo_url
+        let repo_name = repo_info
+            .repo_url
             .split('/')
             .last()
             .unwrap()
@@ -133,11 +134,17 @@ pub fn run() {
                 eprintln!("Git reset failed: {}", err);
                 return;
             }
-
         } else {
             // Clone the GitHub repository with depth 1 to save space
             println!("Cloning the repository...");
-            if let Err(err) = run_git_command(&["clone", "--depth", "1", "--branch", "main", &repo_info.repo_url]) {
+            if let Err(err) = run_git_command(&[
+                "clone",
+                "--depth",
+                "1",
+                "--branch",
+                "main",
+                &repo_info.repo_url,
+            ]) {
                 eprintln!("Git clone failed: {}", err);
                 return;
             }

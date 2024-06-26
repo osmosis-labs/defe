@@ -13,6 +13,9 @@ pub fn run() {
     if output.status.success() {
         println!("Vue.js project created successfully!");
     } else {
-        eprintln!("Failed to create Vue.js project: {}", String::from_utf8_lossy(&output.stderr));
+        eprintln!(
+            "Failed to create Vue.js project: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 }

@@ -1,15 +1,15 @@
 use std::env;
-use std::path::PathBuf;
+use std::fs;
 use std::io::{self, BufRead, BufReader, Write}; // Added BufRead here
 use std::net::{TcpListener, TcpStream};
-use std::sync::Arc;
-use std::fs;
 use std::path::Path;
+use std::path::PathBuf;
+use std::sync::Arc;
 
+use dialoguer::Input;
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::{ServerConfig, ServerConnection};
 use rustls_pemfile::{certs, pkcs8_private_keys};
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
-use dialoguer::Input;
 
 // Function to load certificates from a file
 fn load_certs(filename: &PathBuf) -> io::Result<Vec<CertificateDer<'static>>> {
@@ -23,11 +23,18 @@ fn load_keys(filename: &PathBuf) -> io::Result<PrivateKeyDer<'static>> {
     let keyfile = fs::File::open(filename)?;
     let mut reader = BufReader::new(keyfile);
     let keys = pkcs8_private_keys(&mut reader).collect::<Result<Vec<_>, _>>()?;
-    keys.into_iter().next().map(|key| key.into()).ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "no keys found"))
+    keys.into_iter()
+        .next()
+        .map(|key| key.into())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "no keys found"))
 }
 
 // Function to handle client connections
-fn handle_client(stream: TcpStream, config: Arc<ServerConfig>, project_dir: &str) -> io::Result<()> {
+fn handle_client(
+    stream: TcpStream,
+    config: Arc<ServerConfig>,
+    project_dir: &str,
+) -> io::Result<()> {
     let conn = ServerConnection::new(Arc::clone(&config)).unwrap();
     let mut tls = rustls::StreamOwned::new(conn, stream);
     let mut reader = BufReader::new(&mut tls);
@@ -38,7 +45,10 @@ fn handle_client(stream: TcpStream, config: Arc<ServerConfig>, project_dir: &str
     // Parse the request (very basic parsing, you might want to use a proper HTTP parser)
     let request_parts: Vec<&str> = request_line.split_whitespace().collect();
     if request_parts.len() < 2 {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid HTTP request"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Invalid HTTP request",
+        ));
     }
 
     let path = request_parts[1];
@@ -90,7 +100,8 @@ pub fn run() -> io::Result<()> {
     // Ask for the project directory name
     let project_dir = Input::<String>::new()
         .with_prompt("Enter the name of the project directory to serve")
-        .interact_text()?;
+        .interact_text()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
 
     // Check if the project directory exists
     let project_path = current_dir.join(&project_dir);

@@ -1,8 +1,7 @@
+use colored::*;
 use dialoguer::Input;
-use colored::*; 
 use dialoguer::{theme::ColorfulTheme, Select};
 pub mod commands;
-
 
 pub const HELP_MESSAGE: &str = r#"
 DFE Certbot Helper
@@ -33,17 +32,29 @@ pub fn print_navigation_help_certbot(target_dir: &std::path::PathBuf) {
     println!("3. Build and run your enclave.");
     println!("\nFor more information and detailed instructions, visit:");
     println!("{}", "https://example.com/enclave-setup".underline());
-    println!("\n{}", format!("Certificate and key files saved in: {}", target_dir.display()).bright_green());
+    println!(
+        "\n{}",
+        format!(
+            "Certificate and key files saved in: {}",
+            target_dir.display()
+        )
+        .bright_green()
+    );
 }
 
 pub fn print_success_message_certbot(target_dir: &std::path::PathBuf) {
-    println!("{}", "SSL/TLS certificate and key files generated successfully!".bright_green());
+    println!(
+        "{}",
+        "SSL/TLS certificate and key files generated successfully!".bright_green()
+    );
     print_navigation_help_certbot(target_dir);
 }
 
 pub fn confirm_domain_configuration_certbot() {
     println!("Before proceeding, please ensure that you have completed the following steps:");
-    println!("1. Log in to your domain registrar's control panel (e.g., GoDaddy, Namecheap, etc.).");
+    println!(
+        "1. Log in to your domain registrar's control panel (e.g., GoDaddy, Namecheap, etc.)."
+    );
     println!("2. Navigate to the DNS management section for your domain.");
     println!("3. Create an A record that points your domain name to your server's IP address.");
     println!("   - If you want to obtain a certificate for a subdomain (e.g., www.example.com), create an A record for the subdomain as well.");
@@ -64,9 +75,11 @@ pub fn confirm_domain_configuration_certbot() {
         .unwrap();
 }
 
-
 pub fn print_certbot_error_message(error_message: &str) {
-    eprintln!("{}", format!("Error running Certbot: {}", error_message).bright_red());
+    eprintln!(
+        "{}",
+        format!("Error running Certbot: {}", error_message).bright_red()
+    );
     eprintln!("{}", "Please check the error message and ensure that your domain is properly configured and accessible.".bright_red());
 }
 
@@ -97,17 +110,16 @@ pub fn print_welcome_defe_message() {
 "#;
 
     let colored_art = art
-        .replace("_", &"_".truecolor(30, 144, 255).to_string())  // Dodger Blue
-        .replace("/", &"/".truecolor(0, 255, 127).to_string())   // Spring Green
+        .replace("_", &"_".truecolor(30, 144, 255).to_string()) // Dodger Blue
+        .replace("/", &"/".truecolor(0, 255, 127).to_string()) // Spring Green
         .replace("\\", &"\\".truecolor(255, 20, 147).to_string()) // Deep Pink
         .replace("|", &"|".truecolor(255, 105, 180).to_string()) // Hot Pink
-        .replace("~", &"~".truecolor(255, 69, 0).to_string())    // Orange Red
-        .replace(" ", &" ".truecolor(128, 0, 128).to_string());  // Purple
+        .replace("~", &"~".truecolor(255, 69, 0).to_string()) // Orange Red
+        .replace(" ", &" ".truecolor(128, 0, 128).to_string()); // Purple
 
     println!("{}", colored_art);
     println!();
 }
-
 
 pub fn run_defe_menu() {
     loop {
@@ -116,6 +128,7 @@ pub fn run_defe_menu() {
             "Run defe-fetcher",
             "Run defe-tls",
             "Run defe-rosario",
+            "Run MPC operations",
             "Create new project",
             "Exit",
         ];
@@ -134,14 +147,19 @@ pub fn run_defe_menu() {
                 if let Err(e) = commands::tls::run() {
                     eprintln!("Error running TLS server: {}", e);
                 }
-            },
+            }
             3 => {
                 if let Err(e) = commands::ros::run() {
                     eprintln!("Rosario Password Program error: {:?}", e);
                 }
-            },
-            4 => handle_new_defe_project(),
-            5 => {
+            }
+            4 => {
+                if let Err(e) = commands::mpc::run() {
+                    eprintln!("MPC operations error: {:?}", e);
+                }
+            }
+            5 => handle_new_defe_project(),
+            6 => {
                 println!("Exiting...");
                 break;
             }

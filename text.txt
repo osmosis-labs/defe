@@ -1,12 +1,13 @@
-use dialoguer::{Confirm, Input, Select};
-use hex::decode;
-use serde::{Deserialize, Serialize};
-use sharks::{Share, Sharks};
 use std::fs;
 use std::io;
-use threshold_crypto::ff::Field;
+use dialoguer::{Input, Confirm, Select};
+use serde::{Serialize, Deserialize};
+use sharks::{Share, Sharks};
+use hex::decode;
 use threshold_crypto::ff::PrimeField;
-use threshold_crypto::{Fr, FrRepr, PublicKey, PublicKeySet, SecretKey, SecretKeySet, PK_SIZE};
+use threshold_crypto::ff::Field;
+use rand::rngs::OsRng;
+use threshold_crypto::{Fr, FrRepr, SecretKey, PublicKey, PublicKeySet, SecretKeySet, PK_SIZE};
 
 #[derive(Serialize, Deserialize)]
 struct KeyShares {
@@ -59,7 +60,6 @@ fn get_threshold_and_total() -> io::Result<(usize, usize)> {
     Ok((threshold, total_shares))
 }
 
-use rand::thread_rng;
 
 fn shamir() -> io::Result<()> {
     println!("Starting Shamir Secret Sharing process...");
@@ -67,7 +67,7 @@ fn shamir() -> io::Result<()> {
     let (threshold, total_shares) = get_threshold_and_total()?;
 
     // Generate secret key set
-    let mut rng = thread_rng();
+    let mut rng = OsRng::new().expect("Failed to create OsRng");
     let secret_key_set = SecretKeySet::random(threshold - 1, &mut rng);
 
     // Create Shamir's Secret Sharing scheme
@@ -75,10 +75,7 @@ fn shamir() -> io::Result<()> {
     let secret_key_share = secret_key_set.secret_key_share(0);
     let secret_key = secret_key_share.reveal();
     let secret_bytes = hex::decode(secret_key).expect("Failed to decode secret key");
-    let shares = sharks
-        .dealer(&secret_bytes)
-        .take(total_shares)
-        .collect::<Vec<_>>();
+    let shares = sharks.dealer(&secret_bytes).take(total_shares).collect::<Vec<_>>();
 
     // Collect public keys from users
     let mut public_keys = Vec::new();
@@ -91,14 +88,10 @@ fn shamir() -> io::Result<()> {
         let public_key_bytes: [u8; PK_SIZE] = decode(public_key)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?
             .try_into()
-            .map_err(|_| {
-                io::Error::new(io::ErrorKind::InvalidInput, "Invalid public key length")
-            })?;
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid public key length"))?;
 
-        public_keys.push(
-            PublicKey::from_bytes(&public_key_bytes)
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?,
-        );
+        public_keys.push(PublicKey::from_bytes(&public_key_bytes)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?);
     }
 
     // Encrypt shares
@@ -124,6 +117,7 @@ fn shamir() -> io::Result<()> {
     Ok(())
 }
 
+
 fn threshval() -> io::Result<()> {
     println!("Starting Threshold Validation process...");
 
@@ -141,10 +135,7 @@ fn threshval() -> io::Result<()> {
     let mut collected_shares = Vec::new();
     loop {
         let share: String = Input::new()
-            .with_prompt(format!(
-                "Enter share {} (hex-encoded, or press Enter to finish)",
-                collected_shares.len() + 1
-            ))
+            .with_prompt(format!("Enter share {} (hex-encoded, or press Enter to finish)", collected_shares.len() + 1))
             .allow_empty(true)
             .interact()
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
@@ -153,49 +144,35 @@ fn threshval() -> io::Result<()> {
             if collected_shares.len() >= threshold {
                 break;
             } else {
-                println!(
-                    "You need at least {} shares. Please continue entering shares.",
-                    threshold
-                );
+                println!("You need at least {} shares. Please continue entering shares.", threshold);
                 continue;
             }
         }
 
-        let share_bytes = decode(&share)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?;
-        collected_shares.push(
-            Share::try_from(share_bytes.as_slice())
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?,
-        );
+        let share_bytes = decode(&share).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?;
+        collected_shares.push(Share::try_from(share_bytes.as_slice())
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?);
 
-        if collected_shares.len() >= threshold
-            && Confirm::new()
-                .with_prompt("Do you want to proceed with reconstruction?")
-                .interact()
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
-        {
+        if collected_shares.len() >= threshold && Confirm::new().with_prompt("Do you want to proceed with reconstruction?").interact().map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))? {
             break;
         }
     }
 
     // Reconstruct the secret
     let sharks = Sharks(threshold as u8);
-    let recovered_secret = sharks
-        .recover(&collected_shares)
+    let recovered_secret = sharks.recover(&collected_shares)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?;
-
+    
     // Convert the recovered secret to Fr
     let mut recovered_secret_fr = Fr::zero();
     for (i, byte) in recovered_secret.iter().enumerate() {
         let mut repr = FrRepr::default();
         repr.as_mut()[0] = *byte as u64;
-        let mut tmp = Fr::from_repr(repr)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?;
+        let mut tmp = Fr::from_repr(repr).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?;
         for _ in 0..i {
             let mut base_repr = FrRepr::default();
             base_repr.as_mut()[0] = 256;
-            let base = Fr::from_repr(base_repr)
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?;
+            let base = Fr::from_repr(base_repr).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?;
             tmp.mul_assign(&base);
         }
         recovered_secret_fr.add_assign(&tmp);

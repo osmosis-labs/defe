@@ -13,6 +13,9 @@ pub fn run() {
     if output.status.success() {
         println!("React project created successfully!");
     } else {
-        eprintln!("Failed to create React project: {}", String::from_utf8_lossy(&output.stderr));
+        eprintln!(
+            "Failed to create React project: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 }

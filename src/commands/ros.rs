@@ -1,14 +1,19 @@
-use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Nonce};
+use aes_gcm::{
+    aead::{Aead, KeyInit},
+    Aes256Gcm, Nonce,
+};
 use base64::{engine::general_purpose, Engine as _};
 use crossterm::{
-    cursor, execute, queue,
+    cursor,
+    event::{self, Event, KeyCode},
+    execute, queue,
     style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor, Stylize},
     terminal::{self, Clear, ClearType},
-    event::{self, Event, KeyCode},
 };
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
-use rand::prelude::SliceRandom;
+use rand::seq::SliceRandom;
+
 use rand::{thread_rng, Rng};
 use rpassword;
 use serde::{Deserialize, Serialize};
@@ -137,7 +142,6 @@ impl Config {
     }
 }
 
-
 fn derive_fixed_key(salt: &[u8]) -> Result<[u8; 32]> {
     let mut key = [0u8; 32];
     pbkdf2::<Hmac<Sha256>>("RosarioEnigmaFixedKey".as_bytes(), salt, 10000, &mut key)
@@ -178,7 +182,10 @@ fn print_title(text: &str) -> Result<()> {
 }
 
 fn print_separator() -> Result<()> {
-    print_centered(&"═".repeat(TERMINAL_WIDTH as usize - 4), Some(PRIMARY_COLOR))?;
+    print_centered(
+        &"═".repeat(TERMINAL_WIDTH as usize - 4),
+        Some(PRIMARY_COLOR),
+    )?;
     Ok(())
 }
 
@@ -196,7 +203,9 @@ fn generate_alphanumeric_grid(password: &str, index: usize) -> (Vec<Vec<char>>, 
     // Fill the grid with random characters
     for row in grid.iter_mut() {
         for cell in row.iter_mut() {
-            *cell = chars.pop().unwrap_or_else(|| rng.sample(rand::distributions::Alphanumeric) as char);
+            *cell = chars
+                .pop()
+                .unwrap_or_else(|| rng.sample(rand::distributions::Alphanumeric) as char);
         }
     }
 
@@ -208,13 +217,12 @@ fn generate_alphanumeric_grid(password: &str, index: usize) -> (Vec<Vec<char>>, 
         3 => (0, 2), // Green
         _ => unreachable!(),
     };
-    let row = row_start + rng.gen_range(0..2);
-    let col = col_start + rng.gen_range(0..2);
+    let row = row_start + rng.gen_range(0, 2);
+    let col = col_start + rng.gen_range(0, 2);
     grid[row][col] = password_char;
 
     (grid, password_char)
 }
-
 
 fn display_grid(grid: &Vec<Vec<char>>) -> Result<()> {
     let mut stdout = io::stdout();
@@ -223,11 +231,18 @@ fn display_grid(grid: &Vec<Vec<char>>) -> Result<()> {
 
     execute!(stdout, Clear(ClearType::All))?;
 
-    queue!(stdout, cursor::MoveTo(left_padding as u16, top_padding as u16))?;
+    queue!(
+        stdout,
+        cursor::MoveTo(left_padding as u16, top_padding as u16)
+    )?;
     queue!(stdout, Print("╔═══╦═══╦═══╦═══╗"))?;
 
     for (i, row) in grid.iter().enumerate() {
-        queue!(stdout, cursor::MoveToNextLine(1), cursor::MoveToColumn(left_padding as u16))?;
+        queue!(
+            stdout,
+            cursor::MoveToNextLine(1),
+            cursor::MoveToColumn(left_padding as u16)
+        )?;
         queue!(stdout, Print("║"))?;
         for (j, &cell) in row.iter().enumerate() {
             let color = match (i / 2, j) {
@@ -246,11 +261,19 @@ fn display_grid(grid: &Vec<Vec<char>>) -> Result<()> {
             )?;
         }
         if i < grid.len() - 1 {
-            queue!(stdout, cursor::MoveToNextLine(1), cursor::MoveToColumn(left_padding as u16))?;
+            queue!(
+                stdout,
+                cursor::MoveToNextLine(1),
+                cursor::MoveToColumn(left_padding as u16)
+            )?;
             queue!(stdout, Print("╠═══╬═══╬═══╬═══╣"))?;
         }
     }
-    queue!(stdout, cursor::MoveToNextLine(1), cursor::MoveToColumn(left_padding as u16))?;
+    queue!(
+        stdout,
+        cursor::MoveToNextLine(1),
+        cursor::MoveToColumn(left_padding as u16)
+    )?;
     queue!(stdout, Print("╚═══╩═══╩═══╩═══╝"))?;
 
     stdout.flush()?;
@@ -288,14 +311,17 @@ fn validate_password(config: &Config) -> Result<bool> {
     terminal::enable_raw_mode()?;
 
     let result = (|| -> Result<bool> {
-        let salt = general_purpose::STANDARD.decode(&config.salt)
+        let salt = general_purpose::STANDARD
+            .decode(&config.salt)
             .map_err(|e| format!("Failed to decode salt: {}", e))?;
         let key = derive_fixed_key(&salt)?;
         let cipher = Aes256Gcm::new(&key.into());
-        let nonce_bytes = general_purpose::STANDARD.decode(&config.nonce)
+        let nonce_bytes = general_purpose::STANDARD
+            .decode(&config.nonce)
             .map_err(|e| format!("Failed to decode nonce: {}", e))?;
         let nonce = Nonce::from_slice(&nonce_bytes);
-        let encrypted_password = general_purpose::STANDARD.decode(&config.encrypted_password)
+        let encrypted_password = general_purpose::STANDARD
+            .decode(&config.encrypted_password)
             .map_err(|e| format!("Failed to decode encrypted password: {}", e))?;
         let decrypted_password = cipher
             .decrypt(nonce, encrypted_password.as_slice())
@@ -347,7 +373,8 @@ fn validate_password(config: &Config) -> Result<bool> {
             };
 
             let entered_symbol = &config.direction_to_symbol[entered_direction];
-            let entered_color = config.color_to_symbol
+            let entered_color = config
+                .color_to_symbol
                 .iter()
                 .find(|(_, symbol)| *symbol == entered_symbol)
                 .map(|(color, _)| color)
@@ -360,7 +387,7 @@ fn validate_password(config: &Config) -> Result<bool> {
 
         clear_screen()?;
         print_title("Password Validation Result")?;
-        
+
         let is_valid = correct_selections == password_length;
         if is_valid {
             print_centered("Password validated successfully!", Some(SUCCESS_COLOR))?;
@@ -368,9 +395,15 @@ fn validate_password(config: &Config) -> Result<bool> {
             print_centered("Password validation failed.", Some(ERROR_COLOR))?;
         }
         print_separator()?;
-        print_centered(&format!("Correct selections: {}/{}", correct_selections, password_length), None)?;
+        print_centered(
+            &format!(
+                "Correct selections: {}/{}",
+                correct_selections, password_length
+            ),
+            None,
+        )?;
         print_centered("Press Enter to continue...", None)?;
-        
+
         // Wait for Enter key
         while event::read()? != Event::Key(KeyCode::Enter.into()) {}
 
@@ -398,7 +431,10 @@ fn get_secure_password() -> Result<String> {
         print_centered("Enter a secure password (alphanumeric only):", None)?;
         let password = rpassword::prompt_password("")?;
         if !password.chars().all(char::is_alphanumeric) {
-            print_centered("Error: Password must contain only letters and numbers.", Some(ERROR_COLOR))?;
+            print_centered(
+                "Error: Password must contain only letters and numbers.",
+                Some(ERROR_COLOR),
+            )?;
             thread::sleep(Duration::from_secs(1));
             continue;
         }
@@ -407,7 +443,10 @@ fn get_secure_password() -> Result<String> {
         if entropy.score() < Score::Three {
             clear_screen()?;
             print_title("Weak Password Warning")?;
-            print_centered("The password you entered is considered weak.", Some(WARNING_COLOR))?;
+            print_centered(
+                "The password you entered is considered weak.",
+                Some(WARNING_COLOR),
+            )?;
             print_centered("Suggestions for a strong password:", None)?;
             print_centered("1. Use a mix of uppercase and lowercase letters.", None)?;
             print_centered("2. Include numbers.", None)?;
@@ -428,7 +467,10 @@ fn get_secure_password() -> Result<String> {
 fn display_menu() -> Result<()> {
     clear_screen()?;
     print_title("Rosario's Enigma Encryption Tool - Main Menu")?;
-    print_centered("1. Generate new grid and validate password", Some(SECONDARY_COLOR))?;
+    print_centered(
+        "1. Generate new grid and validate password",
+        Some(SECONDARY_COLOR),
+    )?;
     print_centered("2. View current configuration", Some(SECONDARY_COLOR))?;
     print_centered("3. Reset configuration", Some(SECONDARY_COLOR))?;
     print_centered("4. Exit", Some(SECONDARY_COLOR))?;
@@ -475,12 +517,19 @@ pub fn run() -> Result<()> {
                 "1" => {
                     match validate_password(&config) {
                         Ok(true) => {
-                            print_centered("Password validated successfully!", Some(SUCCESS_COLOR))?;
+                            print_centered(
+                                "Password validated successfully!",
+                                Some(SUCCESS_COLOR),
+                            )?;
                             thread::sleep(Duration::from_secs(2));
                             break;
                         }
-                        Ok(false) => print_centered("Password validation failed.", Some(ERROR_COLOR))?,
-                        Err(e) => print_centered(&format!("An error occurred: {}", e), Some(ERROR_COLOR))?,
+                        Ok(false) => {
+                            print_centered("Password validation failed.", Some(ERROR_COLOR))?
+                        }
+                        Err(e) => {
+                            print_centered(&format!("An error occurred: {}", e), Some(ERROR_COLOR))?
+                        }
                     }
                     thread::sleep(Duration::from_secs(2));
                 }
@@ -495,17 +544,25 @@ pub fn run() -> Result<()> {
                     for (direction, symbol) in &config.direction_to_symbol {
                         print_centered(&format!("  {} -> {}", direction, symbol), None)?;
                     }
-                    print_centered(&format!("\nEncrypted Password: {}", config.encrypted_password), None)?;
+                    print_centered(
+                        &format!("\nEncrypted Password: {}", config.encrypted_password),
+                        None,
+                    )?;
                     print_separator()?;
                     get_user_input("Press Enter to continue...")?;
                 }
                 "3" => {
                     clear_screen()?;
                     print_title("Reset Configuration")?;
-                    print_centered("Warning: This will reset your entire configuration.", Some(WARNING_COLOR))?;
+                    print_centered(
+                        "Warning: This will reset your entire configuration.",
+                        Some(WARNING_COLOR),
+                    )?;
                     let confirm = get_user_input("Are you sure you want to proceed? (y/n): ")?;
                     if confirm.to_lowercase() == "y" {
-                        let second_confirm = get_user_input("This action is irreversible. Type 'RESET' to confirm: ")?;
+                        let second_confirm = get_user_input(
+                            "This action is irreversible. Type 'RESET' to confirm: ",
+                        )?;
                         if second_confirm == "RESET" {
                             config = Config::new();
                             config.save()?;

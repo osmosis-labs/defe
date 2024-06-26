@@ -1,10 +1,10 @@
+use crate::*;
+use dialoguer::{Confirm, Input};
 use std::env;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
-use dialoguer::{Input, Confirm};
-use crate::*;
 // this program will fetch the SSL chain spec from Let's Encrypt using the Certbot toolkit in rust-sgx
 pub fn run() {
     println!("Running defe-certbot");
